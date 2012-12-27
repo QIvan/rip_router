@@ -60,12 +60,14 @@ OBJS = $(patsubst $(CDIR)/%, $(ODIR)/%, $(patsubst %.c,%.o,$(CSRC)))
 # Файлы latex
 TEXS = $(wildcard $(TEXDIR)/*.tex)
 
+# Нафиг эту фигню, getopt'а вполне хватит.
 # Кодогенерация: разбор параметров командной строки
-$(CDIR)/checkoptn.c: $(CDIR)/checkoptn.def
-	cd $(CDIR) && SHELL=/bin/sh autogen checkoptn.def
-$(IDIR)/checkoptn.h:  $(CDIR)/checkoptn.def
-	cd $(CDIR) && SHELL=/bin/sh autogen checkoptn.def
-	mv -f $(CDIR)/checkoptn.h $(IDIR)
+#$(CDIR)/checkoptn.c: $(CDIR)/checkoptn.def
+#	cd $(CDIR) && SHELL=/bin/sh autogen checkoptn.def
+#$(IDIR)/checkoptn.h:  $(CDIR)/checkoptn.def
+#	cd $(CDIR) && SHELL=/bin/sh autogen checkoptn.def
+#	mv -f $(CDIR)/checkoptn.h $(IDIR)
+
 # Кодогенерация: конечный автомат
 $(CDIR)/server-fsm.c: $(CDIR)/server.def
 	cd $(CDIR) && autogen server.def
