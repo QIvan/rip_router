@@ -29,7 +29,7 @@ REPORT = report.pdf
 # Компилятор С
 CC = gcc
 # Флаги компиляции
-CFLAGS = -I$(IDIR) -Wall -std=c99
+CFLAGS = -I$(IDIR) -Wall -std=gnu99
 # -Werror
 # Флаги сборки
 LDFLAGS += $(shell autoopts-config ldflags)
@@ -50,8 +50,8 @@ all: $(PROG) # $(REPORT)
 # GENINCLUDES = $(IDIR)/checkoptn.h $(IDIR)/server-fsm.h
 
 INCLUDES = $(wildcard $(IDIR)/*.h) $(IDIR)/checkoptn.h $(IDIR)/server-fsm.h
-# $(wildcard $(CDIR)/*.c)
-CSRC = $(addprefix src/, main.c) # $(addprefix src/, checkoptn.c server-fsm.c server.c server-cmd.c server-parse.c server-run.c server-state.c)
+CSRC = $(wildcard $(CDIR)/*.c)
+#CSRC = $(addprefix src/, main.c) # $(addprefix src/, checkoptn.c server-fsm.c server.c server-cmd.c server-parse.c server-run.c server-state.c)
 
 # Объектные файлы. Обычно, наоборот, по заданному списку объектных получают
 # список исходных файлов. ЕНо мне лень.
