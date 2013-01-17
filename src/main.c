@@ -16,13 +16,15 @@
 
 
 #define NO_SEND -1
+#define NO_SEND_HOST -2
+#define NO_SEND_SETSOCKOPT -3
+#define RECEIVE_ERROR -1
 #define IP_MULTICAST_LOOP_ERROR -1
 #define JOIN_MULTICAST_ERROR -1
 #define INET_ADDR_ERROR 0
 
 #define RIP_IP "224.0.0.9"
-#define RIP_PORT 503
-
+#define RIP_PORT 4321   // ВНЕЗАПНО: слушать 520 порт может только root
 #define BUFLEN 512
 
 /**
@@ -115,29 +117,31 @@ get_inet_addr(struct ifaddrs* ifa)
 int
 disable_loopback(int socket)
 {
-    char loopch = 0;
-    if(setsockopt(socket, IPPROTO_IP, IP_MULTICAST_LOOP, (char *)&loopch, sizeof(loopch)) < 0)
-    {
-        perror("Setting IP_MULTICAST_LOOP error");
-        return IP_MULTICAST_LOOP_ERROR;
-    }
-    else
-        printf("Disabling the loopback...OK.\n");
+// Пока отключим для отладки
+//    char loopch = 0;
+//    if(setsockopt(socket, IPPROTO_IP, IP_MULTICAST_LOOP, (char *)&loopch, sizeof(loopch)) < 0)
+//    {
+//        perror("Setting IP_MULTICAST_LOOP error");
+//        return IP_MULTICAST_LOOP_ERROR;
+//    }
+//    else
+//        printf("Disabling the loopback...OK.\n");
+    return 0;
 }
 
 /**
- * Подключается к multicast-рассылке
+ * Установка локального интерфейса для исходящих многоадресных дейтаграмм.
  * @param socket
  * @param host - адрес интерфейса для мультикаста @see get_inet_addr
  * @return
  */
 int
-join_to_multicast(int socket, in_addr_t host)
+set_if_for_multicast(int socket, in_addr_t interface)
 {
     // Адрес должен быть обязательно наш (текущей машины)
     /// @todo лучше делать так, а не через ip_mreqn imr_ifindex
     struct in_addr localInterface;
-    localInterface.s_addr = host;
+    localInterface.s_addr = interface;
     if(setsockopt(socket, IPPROTO_IP, IP_MULTICAST_IF, (char *)&localInterface, sizeof(localInterface)) < 0)
     {
         perror("Setting local interface error");
@@ -153,16 +157,14 @@ join_to_multicast(int socket, in_addr_t host)
  * Если не получится создать сокет - убивает программу.
  */
 int
-send_packet_in_addr(struct ifaddrs* ifa, char mes[])
+send_packet_in_addr(struct ifaddrs* ifa, char data[], char mcastIP[], int port)
 {
     in_addr_t host = get_inet_addr(ifa);
     if (host == 0)
     {
         printf("Get inet addres error\n");
-
-        return NO_SEND;
+        return NO_SEND_HOST;
     }
-    printf("\n\n%i\n\n", host);
 
     // Создаём сокет для UDP
     int sd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -175,10 +177,10 @@ send_packet_in_addr(struct ifaddrs* ifa, char mes[])
         printf("Opening the datagram socket...OK.\n");
 
 
-    if ((disable_loopback(sd) < 0) || (join_to_multicast(sd, host) < 0))
+    if ((disable_loopback(sd) < 0) || (set_if_for_multicast(sd, host) < 0))
     {
         close(sd);
-        return NO_SEND;
+        return NO_SEND_SETSOCKOPT;
     }
 
 
@@ -187,14 +189,15 @@ send_packet_in_addr(struct ifaddrs* ifa, char mes[])
     struct sockaddr_in groupSock;
     memset((char *) &groupSock, 0, sizeof(groupSock));
     groupSock.sin_family = AF_INET;
-    groupSock.sin_addr.s_addr = inet_addr(RIP_IP);
-    groupSock.sin_port = htons(RIP_PORT);
+    groupSock.sin_addr.s_addr = inet_addr(mcastIP);
+    groupSock.sin_port = htons(port);
 
     // Отправка сообщения
-    if(sendto(sd, mes, sizeof(mes), 0, (struct sockaddr*)&groupSock, sizeof(groupSock)) < 0)
+    /// @todo хз почему, но размер нужно + 2 (наверное для символа окончания строки)
+    if(sendto(sd, data, sizeof(data)+2, 0, (struct sockaddr*)&groupSock, sizeof(groupSock)) < 0)
     {
         perror("Sending datagram message error");
-        exit(EXIT_FAILURE);
+        return NO_SEND;
     }
     else
         printf("Sending datagram message...OK\n");
@@ -202,12 +205,85 @@ send_packet_in_addr(struct ifaddrs* ifa, char mes[])
     return 0;
 }
 
-
 int
-receive_datagram(struct ifaddrs* ifa)
+join_to_multicast(int socket, in_addr_t interface, char mcast_ip[])
 {
+    struct ip_mreq group;
+    group.imr_multiaddr.s_addr = inet_addr(mcast_ip);
+    group.imr_interface.s_addr = interface;
+    if(setsockopt(socket, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&group, sizeof(group)) < 0)
+    {
+        perror("Adding multicast group error");
+        close(socket);
+        exit(1);
+    }
+    else
+        printf("Adding multicast group...OK.\n");
+}
 
+/**
+ * Создаёт сокет присоединённый к мультикасту и с bind'ом
+ * @param ifa
+ * @return
+ */
+int
+create_socket_for_receive_datagram(struct ifaddrs* ifa)
+{
+    in_addr_t host = get_inet_addr(ifa);
+    if (host == 0)
+    {
+        printf("Get inet addres error\n");
+        return RECEIVE_ERROR;
+    }
 
+    // Создаём сокет для UDP
+    int sd = socket(AF_INET, SOCK_DGRAM, 0);
+    if(sd < 0)
+    {
+        perror("Opening datagram socket error");
+        exit(1);
+    }
+    else
+        printf("Opening the datagram socket...OK.\n");
+
+    /* Enable SO_REUSEADDR to allow multiple instances of this */
+    /* application to receive copies of the multicast datagrams. */
+    {
+        int reuse = 1;
+        if(setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (char *)&reuse, sizeof(reuse)) < 0)
+        {
+            perror("Setting SO_REUSEADDR error");
+            close(sd);
+            exit(1);
+        }
+        else
+            printf("Setting SO_REUSEADDR...OK.\n");
+    }
+
+    if (join_to_multicast(sd, host, RIP_IP) < 0)
+    {
+        close(sd);
+        return NO_SEND_SETSOCKOPT;
+    }
+    printf("\n\n%i\n\n", host);
+
+    /* Bind to the proper port number with the IP address */
+    /* specified as INADDR_ANY. */
+    struct sockaddr_in localSock;
+    memset((char *) &localSock, 0, sizeof(localSock));
+    localSock.sin_family = AF_INET;
+    localSock.sin_port = htons(RIP_PORT);
+    localSock.sin_addr.s_addr = INADDR_ANY;
+    if(bind(sd, (struct sockaddr*)&localSock, sizeof(localSock)))
+    {
+        perror("Binding datagram socket error");
+        close(sd);
+        exit(1);
+    }
+    else
+        printf("Binding datagram socket...OK.\n");
+
+    return sd;
 }
 
 
@@ -215,8 +291,6 @@ receive_datagram(struct ifaddrs* ifa)
 
 
 
-/* размер буфера для входящих датаграмм */
-#define BUFSIZE 512
 
 struct rip_route {
     uint8_t code;
@@ -273,11 +347,16 @@ int main (int argc, char *argv[ ])
                    can free list later */
 
     for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        ifa = ifa->ifa_next;
+        ifa = ifa->ifa_next;
+        ifa = ifa->ifa_next;
+        ifa = ifa->ifa_next;
         if (ifa->ifa_addr == NULL)
             continue;
-
         family = ifa->ifa_addr->sa_family;
 
+        if (family != AF_INET)
+            continue;
         /* Display interface name and family (including symbolic
                        form of the latter for the common families) */
         printf("%s  address family: %d%s\n",
@@ -285,13 +364,27 @@ int main (int argc, char *argv[ ])
                (family == AF_PACKET) ? " (AF_PACKET)" :
                                        (family == AF_INET) ?   " (AF_INET)" :
                                                                (family == AF_INET6) ?  " (AF_INET6)" : "");
-        send_packet_in_addr(ifa, "Hello!");
-//        receive_datagram(ifa);
+        send_packet_in_addr(ifa, "Hello!\0", RIP_IP, RIP_PORT);
+        break;
+    }
+    int sd = create_socket_for_receive_datagram(ifa);
+
+    char databuf[BUFLEN];
+    if(read(sd, databuf, sizeof(databuf)) < 0)
+    {
+        perror("Reading datagram message error");
+        close(sd);
+        exit(1);
+    }
+    else
+    {
+        printf("Reading datagram message...OK.\n");
+        printf("The message from multicast server is: \"%s\"\n", databuf);
     }
 
 
+
     freeifaddrs(ifaddr);
-    exit(EXIT_SUCCESS);
 
     return 0;
 }
