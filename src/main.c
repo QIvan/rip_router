@@ -1,18 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stropts.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
-#include <netinet/in.h>
-#include <linux/netdevice.h>
-#include <fcntl.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <ifaddrs.h>
-#include <unistd.h>
+// для ioctl
+//#include <linux/netdevice.h>
 
 
 #define NO_SEND -1
@@ -149,6 +146,8 @@ set_if_for_multicast(int socket, in_addr_t interface)
     }
     else
         printf("Setting the local interface...OK\n");
+
+    return 0;
 }
 
 /**
@@ -220,6 +219,8 @@ join_to_multicast(int socket, in_addr_t interface, char mcast_ip[])
     }
     else
         printf("Adding multicast group...OK.\n");
+
+    return 0;
 }
 
 /**
