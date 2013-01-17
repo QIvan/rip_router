@@ -111,7 +111,7 @@ get_inet_addr(struct ifaddrs* ifa)
 }
 
 /**
- * Отключает loopback чтобы не получать собственные датаграммы
+ * Отключает loopback чтобы не получать собственные дейтаграммы
  * @param socket
 */
 int
@@ -202,6 +202,7 @@ send_packet_in_addr(struct ifaddrs* ifa, char data[], char mcastIP[], int port)
     else
         printf("Sending datagram message...OK\n");
 
+    close(sd);
     return 0;
 }
 
@@ -222,9 +223,7 @@ join_to_multicast(int socket, in_addr_t interface, char mcast_ip[])
 }
 
 /**
- * Создаёт сокет присоединённый к мультикасту и с bind'ом
- * @param ifa
- * @return
+ * Создаёт сокет присоединённый к мультикасту и с связанный с нужным портом
  */
 int
 create_socket_for_receive_datagram(struct ifaddrs* ifa)
@@ -381,6 +380,7 @@ int main (int argc, char *argv[ ])
         printf("Reading datagram message...OK.\n");
         printf("The message from multicast server is: \"%s\"\n", databuf);
     }
+    close(sd);
 
 
 
