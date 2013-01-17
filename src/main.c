@@ -32,55 +32,55 @@
  * хз как лучше, но навреное через getifaddrs,
  * ибо она работает на freebsd
  */
-int print_addresses_ioctl(const int domain)
-{
-    struct ifconf ifconf;
-    struct ifreq ifr[50];
-    ifconf.ifc_buf = (char *) ifr;
-    ifconf.ifc_len = sizeof ifr;
+//int print_addresses_ioctl(const int domain)
+//{
+//    struct ifconf ifconf;
+//    struct ifreq ifr[50];
+//    ifconf.ifc_buf = (char *) ifr;
+//    ifconf.ifc_len = sizeof ifr;
 
-    int s = socket(domain, SOCK_STREAM, 0);
-    if (s < 0)
-    {
-        perror("socket");
-        return 0;
-    }
+//    int s = socket(domain, SOCK_STREAM, 0);
+//    if (s < 0)
+//    {
+//        perror("socket");
+//        return 0;
+//    }
 
-    /*
-     * Функция ioctl манипулирует базовыми параметрами устройств, представленных в виде специальных файлов.
-     * В частности, многими оперативными характеристиками специальных символьных файлов (например терминалов)
-     * можно управлять через ioctl запросы.
-     * Первый аргумент d - открытый файловый дескриптор.
-     * Второй аргумент является кодом запроса, который зависит от устройства.
-     * Третий аргумент является указателем на память
-    */
-    if (ioctl(s, SIOCGIFCONF, &ifconf) == -1)
-    {
-        perror("ioctl");
-        return 0;
-    }
+//    /*
+//     * Функция ioctl манипулирует базовыми параметрами устройств, представленных в виде специальных файлов.
+//     * В частности, многими оперативными характеристиками специальных символьных файлов (например терминалов)
+//     * можно управлять через ioctl запросы.
+//     * Первый аргумент d - открытый файловый дескриптор.
+//     * Второй аргумент является кодом запроса, который зависит от устройства.
+//     * Третий аргумент является указателем на память
+//    */
+//    if (ioctl(s, SIOCGIFCONF, &ifconf) == -1)
+//    {
+//        perror("ioctl");
+//        return 0;
+//    }
 
-    int if_count = ifconf.ifc_len / sizeof(ifr[0]);
-    printf("interfaces = %d:\n", if_count);
+//    int if_count = ifconf.ifc_len / sizeof(ifr[0]);
+//    printf("interfaces = %d:\n", if_count);
 
-    for (int i = 0; i < if_count; i++)
-    {
-        char ip[INET_ADDRSTRLEN];
-        struct sockaddr_in *s_in = (struct sockaddr_in *) &ifr[i].ifr_addr;
+//    for (int i = 0; i < if_count; i++)
+//    {
+//        char ip[INET_ADDRSTRLEN];
+//        struct sockaddr_in *s_in = (struct sockaddr_in *) &ifr[i].ifr_addr;
 
-        if (!inet_ntop(domain, &s_in->sin_addr, ip, sizeof(ip)))
-        {
-            perror("inet_ntop");
-            return 0;
-        }
+//        if (!inet_ntop(domain, &s_in->sin_addr, ip, sizeof(ip)))
+//        {
+//            perror("inet_ntop");
+//            return 0;
+//        }
 
-        printf("%s - %i\n", ifr[i].ifr_name, s_in->sin_addr);
-    }
+//        printf("%s\n", ifr[i].ifr_name);
+//    }
 
-    close(s);
+//    close(s);
 
-    return 1;
-}
+//    return 1;
+//}
 
 /**
  * Извлекает из ifaddrs ip-адрес в формате in_addr_t (uint_32)
@@ -264,7 +264,7 @@ create_socket_for_receive_datagram(struct ifaddrs* ifa)
         close(sd);
         return NO_SEND_SETSOCKOPT;
     }
-    printf("\n\n%i\n\n", host);
+    printf("\n\n%o\n\n", host);
 
     /* Bind to the proper port number with the IP address */
     /* specified as INADDR_ANY. */
@@ -381,8 +381,6 @@ int main (int argc, char *argv[ ])
         printf("The message from multicast server is: \"%s\"\n", databuf);
     }
     close(sd);
-
-
 
     freeifaddrs(ifaddr);
 
