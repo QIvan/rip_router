@@ -16,13 +16,21 @@
 
 
 #define NO_SEND -1
+#define IP_MULTICAST_LOOP_ERROR -1
+#define JOIN_MULTICAST_ERROR -1
+#define INET_ADDR_ERROR 0
 
 #define RIP_IP "224.0.0.9"
 #define RIP_PORT 503
 
 #define BUFLEN 512
 
-int print_addresses(const int domain)
+/**
+ * эта версия получает адрес через ioctl
+ * хз как лучше, но навреное через getifaddrs,
+ * ибо она работает на freebsd
+ */
+int print_addresses_ioctl(const int domain)
 {
     struct ifconf ifconf;
     struct ifreq ifr[50];
@@ -36,7 +44,7 @@ int print_addresses(const int domain)
         return 0;
     }
 
-    /**
+    /*
      * Функция ioctl манипулирует базовыми параметрами устройств, представленных в виде специальных файлов.
      * В частности, многими оперативными характеристиками специальных символьных файлов (например терминалов)
      * можно управлять через ioctl запросы.
@@ -72,48 +80,13 @@ int print_addresses(const int domain)
     return 1;
 }
 
-int send_packet(char * mes)
+/**
+ * Извлекает из ifaddrs ip-адрес в формате in_addr_t (uint_32)
+ * (для получения строкой в классическом виде смотри inet_ntop )
+*/
+in_addr_t
+get_inet_addr(struct ifaddrs* ifa)
 {
-    struct sockaddr_in si_other;
-    int s, slen=sizeof(si_other);
-    char buf[BUFLEN];
-
-    if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
-    {
-        perror("socket() failed");
-        return -1;
-    }
-
-    memset((char *) &si_other, 0, sizeof(si_other));
-    si_other.sin_family = AF_INET;
-    si_other.sin_port = htons(RIP_PORT);
-
-    u_int yes = 1;
-    setsockopt(s, IPPROTO_IP, IP_MULTICAST_LOOP, &yes, sizeof(yes));
-    if (inet_aton(RIP_IP, &si_other.sin_addr) == 0)
-    {
-        fprintf(stderr, "inet_aton() failed\n");
-        return -1;
-    }
-
-    sprintf(buf, mes);
-    if (sendto(s, buf, BUFLEN, 0, &si_other, slen) == -1)
-    {
-        perror("sendto() failed");
-        return -1;
-    }
-
-    close(s);
-    return 0;
-}
-
-int
-send_packet_in_addr(struct ifaddrs* ifa, char databuf[])
-{
-    int sd;
-    //char databuf[1024] = "Multicast test message lol!";
-    int datalen = sizeof(databuf);
-
     char host[NI_MAXHOST];
     if (ifa->ifa_addr->sa_family == AF_INET) {
         int s = getnameinfo(ifa->ifa_addr,
@@ -126,13 +99,73 @@ send_packet_in_addr(struct ifaddrs* ifa, char databuf[])
         }
         else
             printf("Received host addres...OK\n");
+        printf(host);
     }
     else
-        return NO_SEND;
-    printf("\n\n%s\n\n", host);
+        return INET_ADDR_ERROR;
 
-    /* Create a datagram socket on which to send. */
-    sd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    return inet_addr(host);
+}
+
+/**
+ * Отключает loopback чтобы не получать собственные датаграммы
+ * @param socket
+*/
+int
+disable_loopback(int socket)
+{
+    char loopch = 0;
+    if(setsockopt(socket, IPPROTO_IP, IP_MULTICAST_LOOP, (char *)&loopch, sizeof(loopch)) < 0)
+    {
+        perror("Setting IP_MULTICAST_LOOP error");
+        return IP_MULTICAST_LOOP_ERROR;
+    }
+    else
+        printf("Disabling the loopback...OK.\n");
+}
+
+/**
+ * Подключается к multicast-рассылке
+ * @param socket
+ * @param host - адрес интерфейса для мультикаста @see get_inet_addr
+ * @return
+ */
+int
+join_to_multicast(int socket, in_addr_t host)
+{
+    // Адрес должен быть обязательно наш (текущей машины)
+    /// @todo лучше делать так, а не через ip_mreqn imr_ifindex
+    struct in_addr localInterface;
+    localInterface.s_addr = host;
+    if(setsockopt(socket, IPPROTO_IP, IP_MULTICAST_IF, (char *)&localInterface, sizeof(localInterface)) < 0)
+    {
+        perror("Setting local interface error");
+        return JOIN_MULTICAST_ERROR;
+    }
+    else
+        printf("Setting the local interface...OK\n");
+}
+
+/**
+ * Отправляет широкрвещательное mes сообщение в интерфейс ifa
+ * @return 0 - успех, NO_SEND - неудача
+ * Если не получится создать сокет - убивает программу.
+ */
+int
+send_packet_in_addr(struct ifaddrs* ifa, char mes[])
+{
+    in_addr_t host = get_inet_addr(ifa);
+    if (host == 0)
+    {
+        printf("Get inet addres error\n");
+
+        return NO_SEND;
+    }
+    printf("\n\n%i\n\n", host);
+
+    // Создаём сокет для UDP
+    int sd = socket(AF_INET, SOCK_DGRAM, 0);
     if(sd < 0)
     {
         perror("Opening datagram socket error");
@@ -142,45 +175,23 @@ send_packet_in_addr(struct ifaddrs* ifa, char databuf[])
         printf("Opening the datagram socket...OK.\n");
 
 
-    //Отключаем loopback чтобы не получать собственные датаграммы
+    if ((disable_loopback(sd) < 0) || (join_to_multicast(sd, host) < 0))
     {
-        char loopch = 0;
-        if(setsockopt(sd, IPPROTO_IP, IP_MULTICAST_LOOP, (char *)&loopch, sizeof(loopch)) < 0)
-        {
-            perror("Setting IP_MULTICAST_LOOP error");
-            close(sd);
-            exit(1);
-        }
-        else
-            printf("Disabling the loopback...OK.\n");
+        close(sd);
+        return NO_SEND;
     }
 
 
 
-    // Подключаемся к multcast рассылке
-    // Адрес должен быть обязательно наш (текущей машины)
-    /// @todo нужно делать так, а не через ip_mreqn imr_ifindex
-    struct in_addr localInterface;
-    localInterface.s_addr = inet_addr(host);
-    if(setsockopt(sd, IPPROTO_IP, IP_MULTICAST_IF, (char *)&localInterface, sizeof(localInterface)) < 0)
-    {
-        perror("Setting local interface error");
-        exit(1);
-    }
-    else
-        printf("Setting the local interface...OK\n");
-
-    /* Initialize the group sockaddr structure with a */
-    /* group address of 225.1.1.1 and port 5555. */
+    // Инициализуруем группу для мультикаста
     struct sockaddr_in groupSock;
     memset((char *) &groupSock, 0, sizeof(groupSock));
     groupSock.sin_family = AF_INET;
     groupSock.sin_addr.s_addr = inet_addr(RIP_IP);
     groupSock.sin_port = htons(RIP_PORT);
 
-    /* Send a message to the multicast group specified by the*/
-    /* groupSock sockaddr structure. */
-    if(sendto(sd, databuf, datalen, 0, (struct sockaddr*)&groupSock, sizeof(groupSock)) < 0)
+    // Отправка сообщения
+    if(sendto(sd, mes, sizeof(mes), 0, (struct sockaddr*)&groupSock, sizeof(groupSock)) < 0)
     {
         perror("Sending datagram message error");
         exit(EXIT_FAILURE);
@@ -188,7 +199,20 @@ send_packet_in_addr(struct ifaddrs* ifa, char databuf[])
     else
         printf("Sending datagram message...OK\n");
 
+    return 0;
 }
+
+
+int
+receive_datagram(struct ifaddrs* ifa)
+{
+
+
+}
+
+
+
+
 
 
 /* размер буфера для входящих датаграмм */
@@ -239,7 +263,6 @@ int main (int argc, char *argv[ ])
 
     struct ifaddrs *ifaddr, *ifa;
     int family;
-    char host[NI_MAXHOST];
 
     if (getifaddrs(&ifaddr) == -1) {
         perror("getifaddrs");
@@ -262,9 +285,10 @@ int main (int argc, char *argv[ ])
                (family == AF_PACKET) ? " (AF_PACKET)" :
                                        (family == AF_INET) ?   " (AF_INET)" :
                                                                (family == AF_INET6) ?  " (AF_INET6)" : "");
-
         send_packet_in_addr(ifa, "Hello!");
+//        receive_datagram(ifa);
     }
+
 
     freeifaddrs(ifaddr);
     exit(EXIT_SUCCESS);
