@@ -11,7 +11,12 @@
 in_addr_t
 get_inet_addr(struct ifaddrs* ifa);
 
-
+/**
+ * выводит все интерфейсы локальной машины
+ * по сути просто функция из man getifaddrs
+ */
+void
+print_addresses();
 
 
 

@@ -12,7 +12,7 @@
 
 int main (int argc, char *argv[ ])
 {
-//    print_addresses(AF_INET);
+    print_addresses();
 
     struct ifaddrs *ifaddr, *ifa;
     int family;
@@ -43,7 +43,7 @@ int main (int argc, char *argv[ ])
                (family == AF_PACKET) ? " (AF_PACKET)" :
                                        (family == AF_INET) ?   " (AF_INET)" :
                                                                (family == AF_INET6) ?  " (AF_INET6)" : "");
-        send_packet_in_addr(ifa, "Hello!\0", RIP_IP, RIP_PORT);
+        send_packet_in_addr(ifa, RIP_IP, RIP_PORT, "Hello!\0");
         break;
     }
     int sd = create_socket_for_receive_datagram(ifa, RIP_IP, RIP_PORT);

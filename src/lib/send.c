@@ -47,7 +47,7 @@ set_if_for_multicast(int socket, in_addr_t interface)
 }
 
 int
-send_packet_in_addr(struct ifaddrs* ifa, char data[], char mcastIP[], int port)
+create_socket_for_send(struct ifaddrs* ifa)
 {
     in_addr_t host = get_inet_addr(ifa);
     if (host == 0)
@@ -73,7 +73,17 @@ send_packet_in_addr(struct ifaddrs* ifa, char data[], char mcastIP[], int port)
         return NO_SEND_SETSOCKOPT;
     }
 
+    return sd;
+}
 
+int
+send_packet_in_addr(struct ifaddrs* ifa, char mcastIP[], int port, char data[])
+{
+    int sd = create_socket_for_send(ifa);
+    if(sd < 0)
+    {
+        return NO_SEND;
+    }
 
     // Инициализуруем группу для мультикаста
     struct sockaddr_in groupSock;
