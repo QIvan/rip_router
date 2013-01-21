@@ -80,7 +80,7 @@ print_addresses()
             printf("\taddress: <%s>\n", host);
         }
     }
-
+    fflush(stdout);
     freeifaddrs(ifaddr);
 }
 

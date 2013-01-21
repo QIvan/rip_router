@@ -66,7 +66,6 @@ create_socket_for_receive_datagram(struct ifaddrs* ifa,  char mcastIP[], int por
         close(sd);
         return RECEIVE_ERROR_SETSOCKOPT;
     }
-    printf("\n\n%o\n\n", host);
 
     /* Bind to the proper port number with the IP address */
     /* specified as INADDR_ANY. */
