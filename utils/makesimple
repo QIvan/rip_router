@@ -1,0 +1,203 @@
+#!/usr/bin/python
+
+import re, os
+
+re_broke = re.compile('^(.+?)(\s*)\\\s*$')
+re_vardef = re.compile('^([.\w]+)\s*=\s*(.+?)\s*$')
+re_varadd = re.compile('^([.\w]+)\s*\+=\s*(.+?)\s*$')
+re_func = re.compile('^(.*?)\$\((\w+) (.+)\)(.*)$')
+re_var = re.compile('^(.*?)(?<!\$)\$\(([\w.]+)\)(.*)$')
+re_comment = re.compile('^(.*?)\#.*$')
+
+re_params2 = re.compile('^(.*?)\s*,\s*(.*)$')
+re_params3 = re.compile('^(.*?)\s*,\s*(.*?)\s*,\s*(.*)$')
+
+
+def f_wildcard(param):
+    f = os.popen('ls ' + param)
+    return ' '.join([l.strip() for l in f.readlines() if len(l.strip()) > 0])
+
+
+def f_addprefix(param):
+    m = re_params2.match(param)
+    if not m:
+        return param
+    p = m.group(1)
+    p2 = calc_value(m.group(2), vars)
+    list = [calc_value(l, vars) for l in p2.split()]
+    return ' '.join([p + l for l in list])
+
+
+def f_patsubst(param):
+    m = re_params3.match(param)
+    if not m:
+        raise Exception('Invalid patsubst params: ', param)
+    p_src = m.group(1)
+    p_rep = m.group(2)
+    p2 = calc_value(m.group(3), vars)
+    list = [calc_value(l, vars) for l in p2.split()]
+    dst = []
+    p_src = re.escape(p_src).replace('\%', '(.*?)')
+    re1 = re.compile('^' + p_src + '$')
+    for l in list:
+        m = re1.match(l)
+        if m:
+            new = p_rep.replace('%', m.group(1))
+            #~ print l, '->', new
+            dst.append(new)
+        else:
+            dst.append(l)
+    return ' '.join(dst)
+
+
+def f_shell(param):
+    f = os.popen(param)
+    l = [l.strip() for l in f.readlines() if len(l.strip()) > 0]
+    return ' '.join(l)
+
+
+funcs = {
+    'wildcard': f_wildcard,
+    'addprefix': f_addprefix,
+    'patsubst': f_patsubst,
+    'shell': f_shell
+    }
+
+
+def read_input():
+    lines = []
+    try:
+        while 1:
+            line = raw_input()
+            m = re_comment.match(line)
+            if m:
+                line = m.group(1)
+            while 1:
+                m = re_broke.match(line)
+                if m:
+                    line = m.group(1) +' ' + raw_input()
+                else:
+                    break
+            if len(line)  > 0:
+                lines.append(line)
+    except EOFError:
+        return lines
+
+
+def find_vars(lines):
+    vars = dict()
+    for l in lines:
+        m = re_vardef.match(l)
+        if m:
+            vars[m.group(1)] = m.group(2)
+        else:
+            m = re_varadd.match(l)
+            if m:
+                try:
+                    vars[m.group(1)] = vars[m.group(1)] + ' ' + m.group(2)
+                except:
+                    vars[m.group(1)] = m.group(2)
+    return vars
+
+bad_vars = None
+
+def no_vars(line, vars):
+    l = line
+    while 1:
+        m = re_var.match(l)
+        #~ print m, l
+        if m:
+            try:
+                l = m.group(1) + vars[m.group(2)] + m.group(3)
+            except:
+                global bad_vars
+                bad_vars = (m.group(2), )
+                return None
+        else:
+            break
+    return l
+
+
+def calc_value(value, known_vars):
+    v = no_vars(value, known_vars)
+    if not v:
+        return None
+    # calc functions
+    while 1:
+        m = re_func.match(v)
+        if m:
+            try:
+                fnc = m.group(2)
+                f = funcs[fnc]
+            except:
+                raise Exception('Unknown function: [' + fnc + ']')
+            v = m.group(1) + f(m.group(3))  + m.group(4)
+        else:
+            break
+    return v
+
+
+def calc_vars(vars):
+    changed = True
+    new_vars = dict()
+    while changed:
+        changed = False
+        for var in vars.keys():
+            #~ print new_vars
+            new_value = calc_value(vars[var], new_vars)
+            if new_value:
+                #~ print var, ':', vars[var], '->', new_value
+                new_vars[var] = new_value
+                del vars[var]
+                changed = True
+            else:
+                #~ print var, ':', vars[var]
+                pass
+        if len(vars.keys()) > 0 and not changed:
+            raise Exception('Cannot resolve variables: ' + ', '.join(vars.keys()))
+    return new_vars
+
+
+def remove_vars(lines, vars):
+    r = []
+    global bad_vars
+    bad_vars = []
+    for line in lines:
+        if re_vardef.match(line):
+            continue
+        if re_varadd.match(line):
+            continue
+        l = calc_value(line, vars)
+        if l:
+            r.append(l)
+        else:
+            raise Exception('Unknown variables ' + ', '.join(bad_vars) + ' in ' + line)
+    return r
+
+
+def simplify_make():
+    lines = read_input()
+    vars = find_vars(lines)
+    vars = calc_vars(vars)
+    lines = remove_vars(lines, vars)
+    for l in lines:
+        print l
+
+
+def tests():
+    vars = dict()
+    v = calc_value('$(addprefix src/, file.c)', vars)
+    assert (v == 'src/file.c')
+    v = calc_value('$(patsubst %.c, %.o, file.c)', vars)
+    assert (v == 'file.o')
+    v = calc_value('$(addprefix src/,$(patsubst %.c, %.o, file.c))', vars)
+    assert (v == 'src/file.o')
+    v = calc_value('$(addprefix ./,$(patsubst %.c, %.o, $(addprefix src/, file.c)))', vars)
+    assert (v == './src/file.o')
+    v = calc_value('$(shell ls /b*n/ls)', vars)
+    assert (v == '/bin/ls')
+
+
+tests()
+simplify_make()
+
