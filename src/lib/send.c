@@ -79,6 +79,7 @@ create_socket_for_send(struct ifaddrs* ifa)
 int
 send_packet_in_addr(struct ifaddrs* ifa, char mcastIP[], int port, char data[])
 {
+    printf("\nSend to intarface: %s\n", ifa->ifa_name);
     int sd = create_socket_for_send(ifa);
     if(sd < 0)
     {
