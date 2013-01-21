@@ -11,7 +11,9 @@ int
 join_to_multicast(int socket, in_addr_t interface, char mcast_ip[]);
 
 /**
- * Создаёт сокет присоединённый к мультикасту и с связанный с нужным портом
+ * Создаёт сокет для приёма сообщений
+ * (уже присоединённый к мультикасту и с связанный с нужным портом)
+ * @return сокет или ошибку
  */
 int
 create_socket_for_receive_datagram(struct ifaddrs* ifa, char mcastIP[], int port);
