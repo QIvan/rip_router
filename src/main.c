@@ -17,7 +17,6 @@ int main (int argc, char *argv[ ])
     printf("\n_______________________________________\n\n\n");
 
     struct ifaddrs *ifaddr, *ifa;
-    int family;
 
     if (getifaddrs(&ifaddr) == -1) {
         perror("getifaddrs");
@@ -32,7 +31,6 @@ int main (int argc, char *argv[ ])
             continue;
         if (ifa->ifa_addr->sa_family != AF_INET)
             continue;
-        family = ifa->ifa_addr->sa_family;
 
         //выбираем какой-нибудь интерфейс кроме локальной петли.
         if(strcmp(ifa->ifa_name, "lo") != 0)
