@@ -49,19 +49,21 @@ all: $(PROG) # $(REPORT)
 # Добавляются имена сгенерённых файлов.
 # GENINCLUDES = $(IDIR)/checkoptn.h $(IDIR)/server-fsm.h
 
-INCLUDES = $(wildcard $(IDIR)/*.h) $(IDIR)/checkoptn.h $(IDIR)/server-fsm.h
-CSRC = $(wildcard $(CDIR)/*.c)
+INCLUDES = $(wildcard $(IDIR)/*.h $(IDIR)/lib/*.h) $(IDIR)/checkoptn.h $(IDIR)/server-fsm.h
+CSRC = $(wildcard $(CDIR)/*.c $(CDIR)/lib/*.c)
 #CSRC = $(addprefix src/, main.c) # $(addprefix src/, checkoptn.c server-fsm.c server.c server-cmd.c server-parse.c server-run.c server-state.c)
 
 # Объектные файлы. Обычно, наоборот, по заданному списку объектных получают
 # список исходных файлов. ЕНо мне лень.
 OBJS = $(patsubst $(CDIR)/%, $(ODIR)/%, $(patsubst %.c,%.o,$(CSRC)))
 
+TOBJS = $(patsubst $(CDIR)/tests/%, $(ODIR)/tests/%, $(patsubst %.c,%.o,$(TSRC)))
+
 # Файлы latex
 TEXS = $(wildcard $(TEXDIR)/*.tex)
 
-# Нафиг эту фигню, getopt'а вполне хватит.
 # Кодогенерация: разбор параметров командной строки
+
 #$(CDIR)/checkoptn.c: $(CDIR)/checkoptn.def
 #	cd $(CDIR) && SHELL=/bin/sh autogen checkoptn.def
 #$(IDIR)/checkoptn.h:  $(CDIR)/checkoptn.def
@@ -69,16 +71,22 @@ TEXS = $(wildcard $(TEXDIR)/*.tex)
 #	mv -f $(CDIR)/checkoptn.h $(IDIR)
 
 # Кодогенерация: конечный автомат
-$(CDIR)/server-fsm.c: $(CDIR)/server.def
-	cd $(CDIR) && autogen server.def
-$(IDIR)/server-fsm.h: $(CDIR)/server.def
-	cd $(CDIR) && autogen server.def
-	mv -f $(CDIR)/server-fsm.h $(IDIR)
+
+$(CDIR)/rip-fsm.c: $(CDIR)/rip.def
+	cd $(CDIR) && autogen rip.def
+$(IDIR)/rip-fsm.h: $(CDIR)/rip.def
+	cd $(CDIR) && autogen rip.def
+	mv -f $(CDIR)/rip-fsm.h $(IDIR)
 
 # Сгенерённый код компилируется особым образом
 # (как того требует инструкция).
+
 $(ODIR)/checkoptn.o: $(CDIR)/checkoptn.c
-	$(CC) -c -I$(IDIR) -DTEST_CHECK_OPTS `autoopts-config cflags` -o $@  $<
+	$(CC) -c -I $(IDIR) -DTEST_CHECK_OPTS `autoopts-config cflags` -o $@  $<
+
+# Сгенерённый код компилируется особым образом (костыли).
+$(ODIR)/rip-fsm.o: $(CDIR)/rip-fsm.c
+	$(CC) -I $(IDIR) -Wall -o $@ -c $<
 
 $(DOTDIR)/%_def.dot: $(CDIR)/%.def
 	$(FSM2DOT) $< > $@
@@ -98,17 +106,42 @@ $(ODIR)/%.o: $(CDIR)/%.c $(INCLUDES) # $(GENINCLUDES)
 	$(CC) -c $(CFLAGS) -o $@ $<
 
 $(PROG): $(OBJS)
-	$(CC) -o $@ $(LDFLAGS) $^
+	$(CC) -o $@ $^ $(LDFLAGS)
 
+$(TESTS): $(TOBJS) $(filter-out bin/$(PROG).o, $(OBJS))
+	$(CC) -o $@ $^ $(LDFLAGS) -lcunit
 
+# Отчёт. PDFLATEX вызывается дважды для нормального
+# создания ссылок, это НЕ опечатка.
+$(REPORT): $(TEXS) doxygen $(addprefix $(TEXINCDIR)/, Makefile_1_dot.pdf rip_def_dot.pdf checkoptn.def.tex)
+# $(addprefix $(TEXINCDIR)/, Makefile_1_dot.pdf re_cmd_quit_re.tex re_cmd_user_re.tex cflow01_dot.pdf cflow02_dot.pdf checkoptn.def.tex)
+	cd $(TEXDIR) && $(PDFLATEX) report.tex && $(PDFLATEX) report.tex && cp $(REPORT) ..
+
+# Это сокращённый файл параметров программы дял отчёта,
+# берутся строки, начиная с восьмой, строки с descrip -- удаляются.
+$(TEXINCDIR)/checkoptn.def.tex: $(CDIR)/checkoptn.def
+	$(SRC2TEX) $< 8 | grep -v descrip > $@
+# Файл simplest.mk -- это упрощёный makefile, промежуточная стадия
+# для созданя графа сборки программы
+simplest.mk: Makefile
+	sed 's/$$(INCLUDES)//'  Makefile | $(MAKESIMPLE)  > simplest.mk
+
+$(DOTDIR)/cflow01.dot: $(addprefix $(CDIR)/, server.c server-state.c server-parse.c server-run.c server-fsm.c server-cmd.c)
+	$(CFLOW) $^ | $(SIMPLECFLOW) | $(CFLOW2DOT) > $@
+
+$(DOTDIR)/cflow02.dot: $(addprefix $(CDIR)/, server-cmd.c server-parse.c server-fsm.c)
+	$(CFLOW) $^ | $(SIMPLECFLOW) | $(CFLOW2DOT) > $@
+
+$(Makefile_1.dot): $(MAKE2DOT) simplest.mk
+	$(MAKE2DOT) $(PROG) < simplest.mk > $(Makefile_1.dot)
 
 # Тестирование
 .PHONY: tests
 tests: test_units test_memory test_style test_system
 
 .PHONY: test_units
-test_units:
-	echo Сделайте сами на основе check.sourceforge.net
+test_units: $(TESTS)
+	bin/tests/run
 
 .PHONY: test_style
 test_style:
@@ -116,15 +149,17 @@ test_style:
 	echo Для инженеров -- не обязательно
 
 .PHONY: test_memory
-test_memory: $(PROG)
-	echo Сделайте сами на основе valgrind
+test_memory: $(TESTS)
+	valgrind bin/tests/run
 
 .PHONY: test_system
 test_system: $(PROG)
 	echo Сделайте сами на основе тестирования через netcat и/или скриптов на python/perl/etc.
-	./$(PROG) -p 1025 -f tests/test01.cmds
+#	./$(PROG) -p 1025 -f tests/test01.cmds
 
-
+# Документация
+# .PHONY: report
+report:  $(REPORT)
 
 .PHONY: doxygen
 doxygen: doxygen.cfg $(CSRC) $(INCLUDES)
@@ -136,7 +171,7 @@ doxygen: doxygen.cfg $(CSRC) $(INCLUDES)
 .PHONY: clean
 clean:
 	rm -rf $(ODIR)/*.o $(CDIR)/*~ $(IDIR)/*~ $(TEXINCDIR)/* $(DOXDIR)/* $(DOTDIR)/*.dot; \
-	rm $(PROG) \
-	#rm simplest.mk *~; \
+	rm simplest.mk *~; \
+	rm ./rip_router ; \
 	find $(TEXDIR)/ -type f ! -name "*.tex" -exec rm -f {} \;
 
